@@ -150,7 +150,14 @@ ifeq ($(TEST),1)
 OBJ_DIR := $(TEST_OBJ_DIR_NAME)
 endif
 
-CPPFLAGS := -iquote include -iquote $(GFLIB_SUBDIR) -Wno-trigraphs -DMODERN=$(MODERN) -DTESTING=$(TEST)
+INCLUDE_DIRS := include
+# CLION for some reason does not recognize `-iquote` with spaces after it, but it _does_ if there's no space after it.
+ifdef CLION_IDE
+  INCLUDE_CPP_ARGS := $(INCLUDE_DIRS:%=-iquote%)
+else
+  INCLUDE_CPP_ARGS := $(INCLUDE_DIRS:%=-iquote %)
+endif
+CPPFLAGS := $(INCLUDE_CPP_ARGS) -iquote $(GFLIB_SUBDIR) -Wno-trigraphs -DMODERN=$(MODERN) -DTESTING=$(TEST)
 ifneq ($(MODERN),1)
 CPPFLAGS += -I tools/agbcc/include -I tools/agbcc -nostdinc -undef
 endif
