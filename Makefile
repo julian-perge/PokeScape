@@ -45,32 +45,13 @@ TEST         ?= 0
 ANALYZE      ?= 0
 UNUSED_ERROR ?= 0
 
-ifeq (agbcc,$(MAKECMDGOALS))
-  MODERN := 0
-endif
-
 ifeq (check,$(MAKECMDGOALS))
   TEST := 1
 endif
 
-# use arm-none-eabi-cpp for macOS
-# as macOS's default compiler is clang
-# and clang's preprocessor will warn on \u
-# when preprocessing asm files, expecting a unicode literal
-# we can't unconditionally use arm-none-eabi-cpp
-# as installations which install binutils-arm-none-eabi
-# don't come with it
-ifneq ($(MODERN),1)
-  ifeq ($(shell uname -s),Darwin)
-    CPP := $(PREFIX)cpp
-  else
-    CPP := $(CC) -E
-  endif
-else
-  CPP := $(PREFIX)cpp
-endif
+CPP := $(PREFIX)cpp
 
-ROM_NAME := pokescape_agbcc.gba
+ROM_NAME := pokescape.gba
 ELF_NAME := $(ROM_NAME:.gba=.elf)
 MAP_NAME := $(ROM_NAME:.gba=.map)
 PATCH_NAME := $(ROM_NAME:.gba=.bps)
@@ -88,11 +69,7 @@ ELF = $(ROM:.gba=.elf)
 MAP = $(ROM:.gba=.map)
 SYM = $(ROM:.gba=.sym)
 
-ifeq ($(MODERN),0)
-TEST_OBJ_DIR_NAME := build/test
-else
 TEST_OBJ_DIR_NAME := build/modern-test
-endif
 TESTELF = $(ROM:.gba=-test.elf)
 HEADLESSELF = $(ROM:.gba=-test-headless.elf)
 
@@ -115,32 +92,21 @@ SONG_BUILDDIR = $(OBJ_DIR)/$(SONG_SUBDIR)
 MID_BUILDDIR = $(OBJ_DIR)/$(MID_SUBDIR)
 TEST_BUILDDIR = $(OBJ_DIR)/$(TEST_SUBDIR)
 
-ASFLAGS := -mcpu=arm7tdmi --defsym MODERN=$(MODERN)
+ASFLAGS := -mcpu=arm7tdmi --defsym MODERN=1
 
-ifeq ($(MODERN),0)
-CC1             := tools/agbcc/bin/agbcc$(EXE)
-override CFLAGS += -mthumb-interwork -Wimplicit -Wparentheses -Werror -O2 -fhex-asm -g
-ROM := $(ROM_NAME)
-OBJ_DIR := $(OBJ_DIR_NAME)
-LIBPATH := -L ../../tools/agbcc/lib
-LIB := $(LIBPATH) -lgcc -lc -L../../libagbsyscall -lagbsyscall
-else
 CC1              = $(shell $(PATH_MODERNCC) --print-prog-name=cc1) -quiet
 override CFLAGS += -mthumb -mthumb-interwork -O2 -mabi=apcs-gnu -mtune=arm7tdmi -march=armv4t -fno-toplevel-reorder -Wno-pointer-to-int-cast -std=gnu17 -Werror -Wall -Wno-strict-aliasing -Wno-attribute-alias -Woverride-init
 ifeq ($(ANALYZE),1)
 override CFLAGS += -fanalyzer
 endif
 # Only throw an error for unused elements if its RH-Hideout's repo
-ifeq ($(UNUSED_ERROR),0)
 ifneq ($(GITHUB_REPOSITORY_OWNER),rh-hideout)
 override CFLAGS += -Wno-error=unused-variable -Wno-error=unused-const-variable -Wno-error=unused-parameter -Wno-error=unused-function -Wno-error=unused-but-set-parameter -Wno-error=unused-but-set-variable -Wno-error=unused-value -Wno-error=unused-local-typedefs
-endif
 endif
 ROM := $(MODERN_ROM_NAME)
 OBJ_DIR := $(MODERN_OBJ_DIR_NAME)
 LIBPATH := -L "$(dir $(shell $(PATH_MODERNCC) -mthumb -print-file-name=libgcc.a))" -L "$(dir $(shell $(PATH_MODERNCC) -mthumb -print-file-name=libnosys.a))" -L "$(dir $(shell $(PATH_MODERNCC) -mthumb -print-file-name=libc.a))"
 LIB := $(LIBPATH) -lc -lnosys -lgcc -L../../libagbsyscall -lagbsyscall
-endif
 
 ifeq ($(TESTELF),$(MAKECMDGOALS))
   TEST := 1
@@ -150,10 +116,7 @@ ifeq ($(TEST),1)
 OBJ_DIR := $(TEST_OBJ_DIR_NAME)
 endif
 
-CPPFLAGS := -iquote include -iquote $(GFLIB_SUBDIR) -Wno-trigraphs -DMODERN=$(MODERN) -DTESTING=$(TEST)
-ifneq ($(MODERN),1)
-CPPFLAGS += -I tools/agbcc/include -I tools/agbcc -nostdinc -undef
-endif
+CPPFLAGS := -iquote include -iquote $(GFLIB_SUBDIR) -Wno-trigraphs -DMODERN=1 -DTESTING=$(TEST)
 
 SHA1 := $(shell { command -v sha1sum || command -v shasum; } 2>/dev/null) -c
 GFX := tools/gbagfx/gbagfx$(EXE)
@@ -319,15 +282,11 @@ tidycheck:
 	rm -rf $(TEST_OBJ_DIR_NAME)
 
 emerald:
-	@$(MAKE) -C tools/pokeemerald
-	cp tools/pokeemerald/pokeemerald.gba ./
+	@$(MAKE) -C tools/pokeemerald MODERN=1
+	cp tools/pokeemerald/pokeemerald*.gba ./pokeemerald.gba
 
 tools/flips/flips:
 	cd tools/flips; ./make.sh
-
-ifneq ($(MODERN),0)
-$(C_BUILDDIR)/berry_crush.o: override CFLAGS += -Wno-address-of-packed-member
-endif
 
 include graphics_file_rules.mk
 include map_data_rules.mk
@@ -352,31 +311,14 @@ include songs.mk
 $(CRY_SUBDIR)/uncomp_%.bin: $(CRY_SUBDIR)/uncomp_%.aif ; $(AIF) $< $@
 $(CRY_SUBDIR)/%.bin: $(CRY_SUBDIR)/%.aif ; $(AIF) $< $@ --compress
 sound/%.bin: sound/%.aif ; $(AIF) $< $@
-data/%.inc: data/%.pory; $(SCRIPT) -lm=false -i $< -o $@ -fc tools/poryscript/font_config.json
+data/%.inc: data/%.pory; $(SCRIPT) -lm=false -i $< -o $@ -fc tools/poryscript/font_config.json -cc tools/poryscript/command_config.json
 
-
-ifeq ($(MODERN),0)
-$(C_BUILDDIR)/libc.o: CC1 := tools/agbcc/bin/old_agbcc$(EXE)
-$(C_BUILDDIR)/libc.o: CFLAGS := -O2
-
-$(C_BUILDDIR)/siirtc.o: CFLAGS := -mthumb-interwork
-
-$(C_BUILDDIR)/agb_flash.o: CFLAGS := -O -mthumb-interwork
-$(C_BUILDDIR)/agb_flash_1m.o: CFLAGS := -O -mthumb-interwork
-$(C_BUILDDIR)/agb_flash_mx.o: CFLAGS := -O -mthumb-interwork
-
-$(C_BUILDDIR)/m4a.o: CC1 := tools/agbcc/bin/old_agbcc$(EXE)
-
-$(C_BUILDDIR)/record_mixing.o: CFLAGS += -ffreestanding
-$(C_BUILDDIR)/librfu_intr.o: CC1 := tools/agbcc/bin/agbcc_arm$(EXE)
-$(C_BUILDDIR)/librfu_intr.o: CFLAGS := -O2 -mthumb-interwork -quiet
-else
 $(C_BUILDDIR)/librfu_intr.o: CFLAGS := -mthumb-interwork -O2 -mabi=apcs-gnu -mtune=arm7tdmi -march=armv4t -fno-toplevel-reorder -Wno-pointer-to-int-cast
+$(C_BUILDDIR)/berry_crush.o: override CFLAGS += -Wno-address-of-packed-member
 $(C_BUILDDIR)/pokedex_plus_hgss.o: CFLAGS := -mthumb -mthumb-interwork -O2 -mabi=apcs-gnu -mtune=arm7tdmi -march=armv4t -Wno-pointer-to-int-cast -std=gnu17 -Werror -Wall -Wno-strict-aliasing -Wno-attribute-alias -Woverride-init
-endif
 
 ifeq ($(DINFO),1)
-override CFLAGS += -g
+	override CFLAGS += -g
 endif
 
 # The dep rules have to be explicit or else missing files won't be reported.
@@ -488,13 +430,8 @@ $1: $2 $$(shell $(SCANINC) -I include -I tools/agbcc/include -I gflib $2)
 endef
 $(foreach src, $(TEST_SRCS), $(eval $(call TEST_DEP,$(patsubst $(TEST_SUBDIR)/%.c,$(TEST_BUILDDIR)/%.o,$(src)),$(src),$(patsubst $(TEST_SUBDIR)/%.c,%,$(src)))))
 
-ifeq ($(MODERN),0)
-LD_SCRIPT := ld_script.ld
-LD_SCRIPT_DEPS := $(OBJ_DIR)/sym_bss.ld $(OBJ_DIR)/sym_common.ld $(OBJ_DIR)/sym_ewram.ld
-else
 LD_SCRIPT := ld_script_modern.ld
 LD_SCRIPT_DEPS :=
-endif
 
 $(OBJ_DIR)/ld_script.ld: $(LD_SCRIPT) $(LD_SCRIPT_DEPS)
 	cd $(OBJ_DIR) && sed "s#tools/#../../tools/#g" ../../$(LD_SCRIPT) > ld_script.ld
@@ -514,11 +451,7 @@ agbcc: all
 modern: all
 
 patch: all emerald tools/flips/flips
-ifeq ($(MODERN),0)
-	tools/flips/flips --manifest=patch.xml pokeemerald.gba $(ROM_NAME) $(PATCH_NAME)
-else
 	tools/flips/flips --manifest=patch.xml pokeemerald.gba $(MODERN_ROM_NAME) $(MODERN_PATCH_NAME)
-endif
 
 LD_SCRIPT_TEST := ld_script_test.ld
 
@@ -543,7 +476,7 @@ check: $(TESTELF)
 	$(ROMTESTHYDRA) $(ROMTEST) $(OBJCOPY) $(HEADLESSELF)
 
 libagbsyscall:
-	@$(MAKE) -C libagbsyscall TOOLCHAIN=$(TOOLCHAIN) MODERN=$(MODERN)
+	@$(MAKE) -C libagbsyscall TOOLCHAIN=$(TOOLCHAIN) MODERN=1
 
 ###################
 ### Symbol file ###
